@@ -1,0 +1,49 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Write server address into the app
+        env:
+          APP_URL: ${{ vars.APP_URL }}
+        run: |
+          if [ -z "$APP_URL" ]; then
+            echo "::error::Add repository variable APP_URL (Settings > Secrets and variables > Actions > Variables), e.g. http://1.2.3.4"
+            exit 1
+          fi
+          python3 - <<'PY'
+          import os
+          from xml.sax.saxutils import escape
+          url = os.environ["APP_URL"].strip()
+          with open("app/src/main/res/values/app_url.xml", "w") as f:
+              f.write('<?xml version="1.0" encoding="utf-8"?>\n<resources>\n'
+                      '    <string name="app_url" translatable="false">%s</string>\n</resources>\n' % escape(url))
+          PY
+          echo "--- app_url.xml ---"; cat app/src/main/res/values/app_url.xml
+          echo "--- app/build.gradle ---"; cat -A app/build.gradle | head -40
+          echo "--- repo files ---"; ls -la . app
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: Build APK
+        run: gradle --no-daemon assembleDebug
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NiftyAlgo-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
