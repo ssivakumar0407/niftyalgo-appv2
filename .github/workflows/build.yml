@@ -27,9 +27,56 @@ jobs:
               f.write('<?xml version="1.0" encoding="utf-8"?>\n<resources>\n'
                       '    <string name="app_url" translatable="false">%s</string>\n</resources>\n' % escape(url))
           PY
-          echo "--- app_url.xml ---"; cat app/src/main/res/values/app_url.xml
-          echo "--- app/build.gradle ---"; cat -A app/build.gradle | head -40
-          echo "--- repo files ---"; ls -la . app
+
+      - name: Write correct Gradle files (so manual edits cannot break the build)
+        run: |
+          cat > build.gradle <<'EOF2'
+          // Root build file - intentionally empty. Plugin versions are set in settings.gradle.
+          EOF2
+          cat > settings.gradle <<'EOF2'
+          pluginManagement {
+              repositories { google(); mavenCentral(); gradlePluginPortal() }
+              plugins {
+                  id 'com.android.application' version '8.5.2'
+              }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories { google(); mavenCentral() }
+          }
+          rootProject.name = "NiftyAlgo"
+          include ':app'
+          EOF2
+          cat > app/build.gradle <<'EOF2'
+          plugins {
+              id 'com.android.application'
+          }
+
+          android {
+              namespace 'com.niftyalgo.app'
+              compileSdk 34
+
+              defaultConfig {
+                  applicationId 'com.niftyalgo.app'
+                  minSdk 24
+                  targetSdk 34
+                  versionCode 1
+                  versionName '1.0'
+              }
+
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+          }
+
+          dependencies {
+              implementation platform('org.jetbrains.kotlin:kotlin-bom:1.8.22')
+              implementation 'androidx.appcompat:appcompat:1.7.0'
+              implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.1.0'
+          }
+          EOF2
+          echo "--- repo tree ---"; find . -path ./.git -prune -o -type f -print | sort
 
       - uses: actions/setup-java@v4
         with:
