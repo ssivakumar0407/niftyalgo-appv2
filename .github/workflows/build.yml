@@ -319,7 +319,8 @@ jobs:
               @Override
               protected void onCreate(Bundle savedInstanceState) {
                   super.onCreate(savedInstanceState);
-                  appUrl = getString(R.string.app_url);
+                  prefs = getSharedPreferences("niftyalgo", MODE_PRIVATE);
+                  appUrl = prefs.getString("url", getString(R.string.app_url));
 
                   web = new WebView(this);
                   refresh = new SwipeRefreshLayout(this);
@@ -352,6 +353,7 @@ jobs:
                           // Stay inside the app for every http(s) page, so the Shoonya login and
                           // its redirect back to /shoonya/callback share the same cookies.
                           String scheme = r.getUrl().getScheme();
+                          if ("niftyalgo".equals(scheme)) { showServerDialog(); return true; }
                           return !("http".equals(scheme) || "https".equals(scheme));
                       }
 
@@ -458,7 +460,36 @@ jobs:
                   });
               }
 
-              private void applyAwake(boolean on) {
+              private void showServerDialog() {
+                      final android.widget.EditText in = new android.widget.EditText(this);
+                      in.setText(appUrl);
+                      in.setSingleLine(true);
+                      in.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_URI);
+                      in.setSelectAllOnFocus(true);
+                      new androidx.appcompat.app.AlertDialog.Builder(this)
+                          .setTitle("Server address")
+                          .setMessage("Type the server's public IP or web address, for example 13.234.10.5 or http://13.234.10.5")
+                          .setView(in)
+                          .setPositiveButton("Connect", (d, w) -> {
+                              String u = in.getText().toString().trim();
+                              if (u.length() < 4 || u.contains(" ")) { Toast.makeText(this, "That address does not look right", Toast.LENGTH_LONG).show(); return; }
+                              if (!u.contains("://")) u = "http://" + u;
+                              appUrl = u.replaceAll("/+$", "");
+                              prefs.edit().putString("url", appUrl).apply();
+                              failed = false;
+                              web.loadUrl(appUrl);
+                          })
+                          .setNeutralButton("Use original", (d, w) -> {
+                              prefs.edit().remove("url").apply();
+                              appUrl = getString(R.string.app_url);
+                              failed = false;
+                              web.loadUrl(appUrl);
+                          })
+                          .setNegativeButton("Cancel", null)
+                          .show();
+                  }
+
+                  private void applyAwake(boolean on) {
                   if (on) getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
                   else getWindow().clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
               }
@@ -475,7 +506,8 @@ jobs:
                       m.getMenu().add(0, 4, 3, lockEnabled ? "Fingerprint lock: ON (turn off)" : "Fingerprint lock: OFF (turn on)");
                   }
                   m.getMenu().add(0, 7, 4, prefs.getBoolean("awake", true) ? "Keep screen on: ON (turn off)" : "Keep screen on: OFF (turn on)");
-                  m.getMenu().add(0, 5, 5, "Reload page");
+                  m.getMenu().add(0, 8, 5, "Server address: change");
+                      m.getMenu().add(0, 5, 6, "Reload page");
                   m.setOnMenuItemClickListener(item -> {
                       switch (item.getItemId()) {
                           case 1: signOut(false); break;
@@ -486,6 +518,7 @@ jobs:
                               break;
                           case 4: toggleLock(); break;
                           case 5: web.reload(); break;
+                              case 8: showServerDialog(); break;
                           case 7: { boolean nv = !prefs.getBoolean("awake", true); prefs.edit().putBoolean("awake", nv).apply(); applyAwake(nv); } break;
                           case 6: web.loadUrl(appUrl.replaceAll("/+$", "") + "/gateway/account"); break;
                       }
@@ -645,6 +678,8 @@ jobs:
                           + "<p style='color:#8fa0bf;font-size:13px'>" + appUrl + "</p>"
                           + "<button onclick=\"location.href='" + appUrl + "'\" "
                           + "style='background:#2de6a8;border:0;border-radius:10px;padding:12px 28px;font-size:16px;font-weight:700'>Retry</button>"
+                          + "<p><button onclick=\"location.href='niftyalgo://change'\" "
+                          + "style='background:#26324d;color:#e6edf7;border:0;border-radius:10px;padding:12px 28px;font-size:16px;font-weight:700;margin-top:14px'>Change server address</button></p>"
                           + "</body></html>";
               }
 
