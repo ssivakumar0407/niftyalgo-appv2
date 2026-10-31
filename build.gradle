@@ -256,33 +256,32 @@ jobs:
         with:
           gradle-version: '8.7'
 
-      - name: Build 3 test APKs (basic / menu / full)
+      - name: Build 5 test APKs
         run: |
           set -e
           F=app/src/main/java/com/niftyalgo/app/MainActivity.java
           S=app/src/main/res/values/strings.xml
-          cp "$F" /tmp/Main.orig
+          cp "$F" /tmp/Main.new
           cp "$S" /tmp/strings.orig
           mkdir -p out
 
-          # 1) basic: web app only (like the first working version) + robot icon
-          sed -i 's/ENABLE_MENU = true/ENABLE_MENU = false/; s/ENABLE_LOCK = true/ENABLE_LOCK = false/' "$F"
-          sed -i 's#>Nifty Algo</string>#>Nifty Algo 1-basic</string>#' "$S"
-          gradle --no-daemon assembleDebug
-          cp app/build/outputs/apk/debug/app-debug.apk out/NiftyAlgo-1-basic.apk
+          variant() {
+            # $1 = file label, $2 = handler, $3 = menu, $4 = lock
+            cp /tmp/Main.new "$F"
+            [ "$2" = "off" ] && sed -i 's/ENABLE_HANDLER = true/ENABLE_HANDLER = false/' "$F"
+            [ "$3" = "off" ] && sed -i 's/ENABLE_MENU = true/ENABLE_MENU = false/' "$F"
+            [ "$4" = "off" ] && sed -i 's/ENABLE_LOCK = true/ENABLE_LOCK = false/' "$F"
+            cp /tmp/strings.orig "$S"
+            sed -i "s#>Nifty Algo</string>#>Nifty Algo $1</string>#" "$S"
+            gradle --no-daemon assembleDebug
+            cp app/build/outputs/apk/debug/app-debug.apk "out/NiftyAlgo-$1.apk"
+          }
 
-          # 2) menu: + Switch user / Log off menu, no fingerprint
-          cp /tmp/Main.orig "$F"
-          sed -i 's/ENABLE_LOCK = true/ENABLE_LOCK = false/' "$F"
-          sed -i 's#>Nifty Algo</string>#>Nifty Algo 2-menu</string>#' "$S"
-          gradle --no-daemon assembleDebug
-          cp app/build/outputs/apk/debug/app-debug.apk out/NiftyAlgo-2-menu.apk
-
-          # 3) full: menu + fingerprint lock
-          cp /tmp/Main.orig "$F"
-          sed -i 's#>Nifty Algo</string>#>Nifty Algo 3-full</string>#' "$S"
-          gradle --no-daemon assembleDebug
-          cp app/build/outputs/apk/debug/app-debug.apk out/NiftyAlgo-3-full.apk
+          variant 1-plain      off off off
+          variant 2-errorscreen on off off
+          variant 3-menu       off on  off
+          variant 4-menu-lock  off on  on
+          variant 5-full       on  on  on
           ls -la out
 
       - uses: actions/upload-artifact@v4
