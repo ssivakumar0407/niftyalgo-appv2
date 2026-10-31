@@ -459,6 +459,7 @@ jobs:
                   PopupMenu m = new PopupMenu(this, menuBtn);
                   String who = currentUser();
                   m.getMenu().add(0, 0, 0, who == null ? "Not signed in" : "Signed in as: " + who).setEnabled(false);
+                  m.getMenu().add(0, 6, 0, "Account: change user name / password");
                   m.getMenu().add(0, 1, 0, "Switch user");
                   m.getMenu().add(0, 2, 1, "Log off (close app)");
                   if (ENABLE_LOCK) {
@@ -476,6 +477,7 @@ jobs:
                               break;
                           case 4: toggleLock(); break;
                           case 5: web.reload(); break;
+                          case 6: web.loadUrl(appUrl.replaceAll("/+$", "") + "/gateway/account"); break;
                       }
                       return true;
                   });
