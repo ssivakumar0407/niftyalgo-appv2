@@ -256,10 +256,36 @@ jobs:
         with:
           gradle-version: '8.7'
 
-      - name: Build APK
-        run: gradle --no-daemon assembleDebug
+      - name: Build 3 test APKs (basic / menu / full)
+        run: |
+          set -e
+          F=app/src/main/java/com/niftyalgo/app/MainActivity.java
+          S=app/src/main/res/values/strings.xml
+          cp "$F" /tmp/Main.orig
+          cp "$S" /tmp/strings.orig
+          mkdir -p out
+
+          # 1) basic: web app only (like the first working version) + robot icon
+          sed -i 's/ENABLE_MENU = true/ENABLE_MENU = false/; s/ENABLE_LOCK = true/ENABLE_LOCK = false/' "$F"
+          sed -i 's#>Nifty Algo</string>#>Nifty Algo 1-basic</string>#' "$S"
+          gradle --no-daemon assembleDebug
+          cp app/build/outputs/apk/debug/app-debug.apk out/NiftyAlgo-1-basic.apk
+
+          # 2) menu: + Switch user / Log off menu, no fingerprint
+          cp /tmp/Main.orig "$F"
+          sed -i 's/ENABLE_LOCK = true/ENABLE_LOCK = false/' "$F"
+          sed -i 's#>Nifty Algo</string>#>Nifty Algo 2-menu</string>#' "$S"
+          gradle --no-daemon assembleDebug
+          cp app/build/outputs/apk/debug/app-debug.apk out/NiftyAlgo-2-menu.apk
+
+          # 3) full: menu + fingerprint lock
+          cp /tmp/Main.orig "$F"
+          sed -i 's#>Nifty Algo</string>#>Nifty Algo 3-full</string>#' "$S"
+          gradle --no-daemon assembleDebug
+          cp app/build/outputs/apk/debug/app-debug.apk out/NiftyAlgo-3-full.apk
+          ls -la out
 
       - uses: actions/upload-artifact@v4
         with:
           name: NiftyAlgo-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: out/*.apk
