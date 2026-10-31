@@ -247,6 +247,612 @@ jobs:
           grep -n "uses-permission" app/src/main/AndroidManifest.xml
           file app/src/main/res/mipmap-xxhdpi/ic_launcher.png
 
+      - name: Write app sources (so repo file mix-ups cannot matter)
+        run: |
+          set -e
+          cat > app/src/main/java/com/niftyalgo/app/MainActivity.java <<'J1END'
+          package com.niftyalgo.app;
+
+          import android.annotation.SuppressLint;
+          import android.content.SharedPreferences;
+          import android.graphics.Bitmap;
+          import android.graphics.Color;
+          import android.graphics.drawable.GradientDrawable;
+          import android.net.http.SslError;
+          import android.os.Bundle;
+          import android.os.SystemClock;
+          import android.view.Gravity;
+          import android.view.MotionEvent;
+          import android.view.View;
+          import android.view.ViewConfiguration;
+          import android.view.ViewGroup;
+          import android.webkit.CookieManager;
+          import android.webkit.SslErrorHandler;
+          import android.webkit.WebChromeClient;
+          import android.webkit.WebResourceError;
+          import android.webkit.WebResourceRequest;
+          import android.webkit.WebSettings;
+          import android.webkit.WebStorage;
+          import android.webkit.WebView;
+          import android.webkit.WebViewClient;
+          import android.widget.Button;
+          import android.widget.FrameLayout;
+          import android.widget.LinearLayout;
+          import android.widget.PopupMenu;
+          import android.widget.TextView;
+          import android.widget.Toast;
+
+          import androidx.activity.OnBackPressedCallback;
+          import androidx.appcompat.app.AppCompatActivity;
+          import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
+
+          /** Thin shell: shows the Nifty Algo portal (appUrl) full screen, keeping cookies/login. */
+          public class MainActivity extends AppCompatActivity {
+
+              // Build switches (the workflow flips these to make test builds)
+              private static final boolean ENABLE_MENU = true;
+              private static final boolean ENABLE_LOCK = true;
+              private static final long GRACE_MS = 30_000;   // no fingerprint re-prompt if you return within 30 s
+
+              private WebView web;
+              private SwipeRefreshLayout refresh;
+              private boolean failed = false;
+              private String appUrl;
+
+              private SharedPreferences prefs;
+              private TextView menuBtn;
+              private FrameLayout lockView;
+              private TextView lockMsg;
+              private LockGate gate;
+              private boolean lockEnabled = false;
+              private boolean locked = false;
+              private boolean authInProgress = false;
+              private long pausedAt = 0;
+              private Runnable afterAuth = null;
+
+              private int dp(int v) {
+                  return Math.round(v * getResources().getDisplayMetrics().density);
+              }
+
+              @SuppressLint({"SetJavaScriptEnabled", "ClickableViewAccessibility"})
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+                  appUrl = getString(R.string.app_url);
+
+                  web = new WebView(this);
+                  refresh = new SwipeRefreshLayout(this);
+                  refresh.addView(web, new ViewGroup.LayoutParams(
+                          ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+                  setContentView(refresh);
+                  refresh.setOnRefreshListener(() -> web.reload());
+                  // only allow pull-to-refresh when the page is scrolled to the very top
+                  refresh.setOnChildScrollUpCallback((parent, child) -> web.getScrollY() > 0);
+                  refresh.setEnabled(false);   // pull-to-refresh fought with the page's own scrolling; use menu > Reload page
+
+                  WebSettings s = web.getSettings();
+                  s.setJavaScriptEnabled(true);
+                  s.setDomStorageEnabled(true);
+                  s.setDatabaseEnabled(true);
+                  s.setLoadWithOverviewMode(true);
+                  s.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+                  s.setCacheMode(WebSettings.LOAD_DEFAULT);
+
+                  // keep the portal sign-in cookie (and the Shoonya redirect cookie) in this WebView
+                  CookieManager cm = CookieManager.getInstance();
+                  cm.setAcceptCookie(true);
+                  cm.setAcceptThirdPartyCookies(web, true);
+
+                  web.setWebChromeClient(new WebChromeClient());
+                  web.setWebViewClient(new WebViewClient() {
+                      @Override
+                      public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest r) {
+                          // Stay inside the app for every http(s) page, so the Shoonya login and
+                          // its redirect back to /shoonya/callback share the same cookies.
+                          String scheme = r.getUrl().getScheme();
+                          return !("http".equals(scheme) || "https".equals(scheme));
+                      }
+
+                      @Override
+                      public void onPageStarted(WebView v, String url, Bitmap icon) {
+                          failed = false;
+                      }
+
+                      @Override
+                      public void onPageFinished(WebView v, String url) {
+                          refresh.setRefreshing(false);
+                          CookieManager.getInstance().flush();
+                      }
+
+                      @Override
+                      public void onReceivedError(WebView v, WebResourceRequest r, WebResourceError e) {
+                          if (r.isForMainFrame()) {
+                              failed = true;
+                              refresh.setRefreshing(false);
+                              v.loadDataWithBaseURL(null, errorHtml(e.getDescription().toString()),
+                                      "text/html", "utf-8", null);
+                          }
+                      }
+
+                      @Override
+                      public void onReceivedSslError(WebView v, SslErrorHandler h, SslError e) {
+                          h.cancel(); // never bypass certificate problems
+                      }
+                  });
+
+                  prefs = getSharedPreferences("niftyalgo", MODE_PRIVATE);
+                  lockEnabled = ENABLE_LOCK && prefs.getBoolean("lock", true);
+                  locked = lockEnabled;
+                  if (ENABLE_MENU) buildMenuButton();
+                  if (ENABLE_LOCK) buildLockScreen();
+
+                  getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+                      @Override
+                      public void handleOnBackPressed() {
+                          if (!locked && web.canGoBack() && !failed) web.goBack();
+                          else finish();
+                      }
+                  });
+
+                  if (savedInstanceState != null) web.restoreState(savedInstanceState);
+                  else web.loadUrl(appUrl);
+              }
+
+
+              // ================================================================== menu button
+              private void buildMenuButton() {
+                  menuBtn = new TextView(this);
+                  menuBtn.setText("\u2630");
+                  menuBtn.setTextColor(Color.parseColor("#2DE6A8"));
+                  menuBtn.setTextSize(18);
+                  menuBtn.setGravity(Gravity.CENTER);
+                  GradientDrawable bg = new GradientDrawable();
+                  bg.setShape(GradientDrawable.OVAL);
+                  bg.setColor(Color.parseColor("#E6101B30"));
+                  bg.setStroke(dp(1), Color.parseColor("#802DE6A8"));
+                  menuBtn.setBackground(bg);
+                  menuBtn.setAlpha(0.85f);
+                  FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(dp(44), dp(44),
+                          Gravity.BOTTOM | Gravity.END);
+                  lp.setMargins(0, 0, dp(14), dp(90));
+                  addContentView(menuBtn, lp);
+                  final int slop = ViewConfiguration.get(this).getScaledTouchSlop();
+                  menuBtn.setOnTouchListener(new View.OnTouchListener() {
+                      float downX, downY, startTx, startTy;
+                      boolean moved;
+
+                      @Override
+                      public boolean onTouch(View v, MotionEvent e) {
+                          switch (e.getActionMasked()) {
+                              case MotionEvent.ACTION_DOWN:
+                                  downX = e.getRawX(); downY = e.getRawY();
+                                  startTx = v.getTranslationX(); startTy = v.getTranslationY();
+                                  moved = false;
+                                  return true;
+                              case MotionEvent.ACTION_MOVE:
+                                  float dx = e.getRawX() - downX, dy = e.getRawY() - downY;
+                                  if (moved || Math.abs(dx) > slop || Math.abs(dy) > slop) {
+                                      moved = true;
+                                      v.setTranslationX(startTx + dx);
+                                      v.setTranslationY(startTy + dy);
+                                  }
+                                  return true;
+                              case MotionEvent.ACTION_UP:
+                                  if (!moved) showMenu();
+                                  return true;
+                              default:
+                                  return false;
+                          }
+                      }
+                  });
+              }
+
+              private void showMenu() {
+                  PopupMenu m = new PopupMenu(this, menuBtn);
+                  m.getMenu().add(0, 1, 0, "Switch user");
+                  m.getMenu().add(0, 2, 1, "Log off (close app)");
+                  if (ENABLE_LOCK) {
+                      m.getMenu().add(0, 3, 2, "Lock now");
+                      m.getMenu().add(0, 4, 3, lockEnabled ? "Fingerprint lock: ON (turn off)" : "Fingerprint lock: OFF (turn on)");
+                  }
+                  m.getMenu().add(0, 5, 4, "Reload page");
+                  m.setOnMenuItemClickListener(item -> {
+                      switch (item.getItemId()) {
+                          case 1: signOut(false); break;
+                          case 2: signOut(true); break;
+                          case 3:
+                              if (lockEnabled) { showLock(); authenticate(); }
+                              else Toast.makeText(this, "Turn the fingerprint lock on first", Toast.LENGTH_SHORT).show();
+                              break;
+                          case 4: toggleLock(); break;
+                          case 5: web.reload(); break;
+                      }
+                      return true;
+                  });
+                  m.show();
+              }
+
+              /** Clears this phone's portal session. closeApp=false -> sign-in page again (switch user). */
+              private void signOut(boolean closeApp) {
+                  String base = appUrl.replaceAll("/+$", "");
+                  CookieManager cm = CookieManager.getInstance();
+                  cm.removeAllCookies(null);
+                  cm.flush();
+                  WebStorage.getInstance().deleteAllData();
+                  web.clearCache(true);
+                  web.clearHistory();
+                  if (closeApp) finishAndRemoveTask();
+                  else web.loadUrl(base + "/gateway/logout");   // server clears its cookie and shows the sign-in page
+              }
+
+              // ================================================================== fingerprint lock
+              private void buildLockScreen() {
+                  lockView = new FrameLayout(this);
+                  lockView.setBackgroundColor(Color.parseColor("#0B1220"));
+                  lockView.setClickable(true);
+                  LinearLayout col = new LinearLayout(this);
+                  col.setOrientation(LinearLayout.VERTICAL);
+                  col.setGravity(Gravity.CENTER);
+                  col.setPadding(dp(28), dp(28), dp(28), dp(28));
+                  TextView title = new TextView(this);
+                  title.setText("Nifty Algo is locked");
+                  title.setTextColor(Color.parseColor("#E6EDF7"));
+                  title.setTextSize(22);
+                  title.setGravity(Gravity.CENTER);
+                  lockMsg = new TextView(this);
+                  lockMsg.setText("Use your fingerprint or screen lock to continue.");
+                  lockMsg.setTextColor(Color.parseColor("#8FA0BF"));
+                  lockMsg.setTextSize(14);
+                  lockMsg.setGravity(Gravity.CENTER);
+                  lockMsg.setPadding(0, dp(10), 0, dp(24));
+                  Button unlock = new Button(this);
+                  unlock.setText("Unlock");
+                  unlock.setAllCaps(false);
+                  unlock.setOnClickListener(v -> authenticate());
+                  col.addView(title);
+                  col.addView(lockMsg);
+                  col.addView(unlock);
+                  lockView.addView(col, new FrameLayout.LayoutParams(
+                          FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.CENTER));
+                  addContentView(lockView, new FrameLayout.LayoutParams(
+                          FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+                  lockView.setVisibility(lockEnabled ? View.VISIBLE : View.GONE);
+
+                  try {
+                      gate = new LockGate(this, new GateCallback() {
+                          @Override
+                          public void onSuccess() {
+                              authInProgress = false;
+                              pausedAt = SystemClock.elapsedRealtime();
+                              locked = false;
+                              lockView.setVisibility(View.GONE);
+                              Runnable r = afterAuth;
+                              afterAuth = null;
+                              if (r != null) r.run();
+                          }
+
+                          @Override
+                          public void onError(String msg) {
+                              authInProgress = false;
+                              afterAuth = null;
+                              lockMsg.setText(msg + "\nTap Unlock to try again.");
+                          }
+                      });
+                  } catch (Throwable t) {
+                      lockMsg.setText("Lock could not start: " + t);
+                  }
+              }
+
+              private void authenticate() {
+                  if (authInProgress) return;
+                  if (gate == null) {
+                      lockMsg.setText("The lock is not available on this phone.");
+                      return;
+                  }
+                  try {
+                      if (gate.available()) {
+                          authInProgress = true;
+                          gate.authenticate();
+                      } else {
+                          lockMsg.setText("Set a fingerprint or screen lock in your phone Settings (Security), then tap Unlock.");
+                      }
+                  } catch (Throwable t) {
+                      authInProgress = false;
+                      lockMsg.setText("Lock error: " + t + "\nTap Unlock to try again.");
+                  }
+              }
+
+              private void showLock() {
+                  locked = true;
+                  if (lockView != null) lockView.setVisibility(View.VISIBLE);
+              }
+
+              private void toggleLock() {
+                  if (lockEnabled) {
+                      // turning the lock off needs you to unlock first
+                      afterAuth = () -> {
+                          lockEnabled = false;
+                          prefs.edit().putBoolean("lock", false).apply();
+                          Toast.makeText(this, "Fingerprint lock is OFF", Toast.LENGTH_SHORT).show();
+                      };
+                      showLock();
+                      authenticate();
+                  } else {
+                      boolean ok = false;
+                      try { ok = gate != null && gate.available(); } catch (Throwable ignored) { }
+                      if (!ok) {
+                          Toast.makeText(this, "Set a fingerprint or screen lock in phone Settings first", Toast.LENGTH_LONG).show();
+                          return;
+                      }
+                      lockEnabled = true;
+                      prefs.edit().putBoolean("lock", true).apply();
+                      Toast.makeText(this, "Fingerprint lock is ON", Toast.LENGTH_SHORT).show();
+                  }
+              }
+
+              private String errorHtml(String why) {
+                  return "<html><head><meta name='viewport' content='width=device-width,initial-scale=1'></head>"
+                          + "<body style='background:#0b1220;color:#e6edf7;font-family:sans-serif;text-align:center;padding:40px 20px'>"
+                          + "<h2>Can't reach Nifty Algo</h2><p style='color:#8fa0bf'>" + why + "</p>"
+                          + "<p style='color:#8fa0bf;font-size:13px'>" + appUrl + "</p>"
+                          + "<button onclick=\"location.href='" + appUrl + "'\" "
+                          + "style='background:#2de6a8;border:0;border-radius:10px;padding:12px 28px;font-size:16px;font-weight:700'>Retry</button>"
+                          + "</body></html>";
+              }
+
+              @Override
+              protected void onSaveInstanceState(Bundle out) {
+                  super.onSaveInstanceState(out);
+                  web.saveState(out);
+              }
+
+              @Override
+              protected void onPause() {
+                  super.onPause();
+                  CookieManager.getInstance().flush();
+                  web.onPause();
+                  if (lockEnabled && !authInProgress && lockView != null) {
+                      pausedAt = SystemClock.elapsedRealtime();
+                      lockView.setVisibility(View.VISIBLE);   // hides the screen in the recent-apps preview
+                  }
+              }
+
+              @Override
+              protected void onResume() {
+                  super.onResume();
+                  web.onResume();
+                  if (!lockEnabled || lockView == null) {
+                      locked = false;
+                      if (lockView != null) lockView.setVisibility(View.GONE);
+                      return;
+                  }
+                  if (authInProgress) return;
+                  boolean expired = SystemClock.elapsedRealtime() - pausedAt > GRACE_MS;
+                  if (locked || expired) {
+                      showLock();
+                      authenticate();
+                  } else {
+                      lockView.setVisibility(View.GONE);
+                  }
+              }
+          }
+          J1END
+          cat > app/src/main/java/com/niftyalgo/app/CrashApp.java <<'J2END'
+          package com.niftyalgo.app;
+
+          import android.app.Application;
+
+          import java.io.File;
+          import java.io.FileWriter;
+          import java.io.PrintWriter;
+          import java.io.StringWriter;
+
+          /** Records any crash to a file so the next start can show it (instead of just "keeps stopping"). */
+          public class CrashApp extends Application {
+              @Override
+              public void onCreate() {
+                  super.onCreate();
+                  final Thread.UncaughtExceptionHandler previous = Thread.getDefaultUncaughtExceptionHandler();
+                  Thread.setDefaultUncaughtExceptionHandler((t, e) -> {
+                      try {
+                          StringWriter sw = new StringWriter();
+                          e.printStackTrace(new PrintWriter(sw));
+                          FileWriter w = new FileWriter(new File(getFilesDir(), "last_crash.txt"));
+                          w.write(sw.toString());
+                          w.close();
+                      } catch (Throwable ignored) { }
+                      if (previous != null) previous.uncaughtException(t, e);
+                  });
+              }
+          }
+          J2END
+          cat > app/src/main/java/com/niftyalgo/app/LauncherActivity.java <<'J3END'
+          package com.niftyalgo.app;
+
+          import android.app.Activity;
+          import android.content.ClipData;
+          import android.content.ClipboardManager;
+          import android.content.Context;
+          import android.content.Intent;
+          import android.graphics.Color;
+          import android.graphics.Typeface;
+          import android.os.Bundle;
+          import android.view.ViewGroup;
+          import android.widget.Button;
+          import android.widget.LinearLayout;
+          import android.widget.ScrollView;
+          import android.widget.TextView;
+          import android.widget.Toast;
+
+          import java.io.BufferedReader;
+          import java.io.File;
+          import java.io.FileReader;
+
+          /** Tiny start screen: if the app crashed last time, show the error; otherwise open the real app. */
+          public class LauncherActivity extends Activity {
+              @Override
+              protected void onCreate(Bundle b) {
+                  super.onCreate(b);
+                  final File f = new File(getFilesDir(), "last_crash.txt");
+                  String crash = null;
+                  try {
+                      if (f.exists()) {
+                          StringBuilder sb = new StringBuilder();
+                          BufferedReader r = new BufferedReader(new FileReader(f));
+                          String line;
+                          while ((line = r.readLine()) != null && sb.length() < 3500) sb.append(line).append('\n');
+                          r.close();
+                          crash = sb.toString();
+                      }
+                  } catch (Throwable ignored) { }
+                  if (crash == null || crash.trim().isEmpty()) {
+                      openApp();
+                      return;
+                  }
+                  final String text = crash;
+                  LinearLayout col = new LinearLayout(this);
+                  col.setOrientation(LinearLayout.VERTICAL);
+                  col.setBackgroundColor(Color.parseColor("#0B1220"));
+                  int p = Math.round(16 * getResources().getDisplayMetrics().density);
+                  col.setPadding(p, p * 2, p, p);
+                  TextView h = new TextView(this);
+                  h.setText("Nifty Algo hit an error last time");
+                  h.setTextColor(Color.parseColor("#FF8A8A"));
+                  h.setTextSize(18);
+                  TextView hint = new TextView(this);
+                  hint.setText("Please send a screenshot of this screen (or tap Copy error).");
+                  hint.setTextColor(Color.parseColor("#8FA0BF"));
+                  hint.setTextSize(13);
+                  ScrollView sv = new ScrollView(this);
+                  TextView body = new TextView(this);
+                  body.setText(text);
+                  body.setTextColor(Color.parseColor("#E6EDF7"));
+                  body.setTextSize(10);
+                  body.setTypeface(Typeface.MONOSPACE);
+                  body.setTextIsSelectable(true);
+                  sv.addView(body);
+                  Button copy = new Button(this);
+                  copy.setText("Copy error");
+                  copy.setAllCaps(false);
+                  copy.setOnClickListener(v -> {
+                      ClipboardManager cb = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+                      cb.setPrimaryClip(ClipData.newPlainText("error", text));
+                      Toast.makeText(this, "Copied", Toast.LENGTH_SHORT).show();
+                  });
+                  Button go = new Button(this);
+                  go.setText("Clear error and open app");
+                  go.setAllCaps(false);
+                  go.setOnClickListener(v -> {
+                      f.delete();
+                      openApp();
+                  });
+                  col.addView(h);
+                  col.addView(hint);
+                  col.addView(sv, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+                  col.addView(copy);
+                  col.addView(go);
+                  setContentView(col);
+              }
+
+              private void openApp() {
+                  startActivity(new Intent(this, MainActivity.class));
+                  finish();
+              }
+          }
+          J3END
+          cat > app/src/main/java/com/niftyalgo/app/GateCallback.java <<'J4END'
+          package com.niftyalgo.app;
+
+          /** Result of the fingerprint check (kept separate so MainActivity does not depend on fingerprint classes). */
+          interface GateCallback {
+              void onSuccess();
+              void onError(String msg);
+          }
+          J4END
+          cat > app/src/main/java/com/niftyalgo/app/LockGate.java <<'J5END'
+          package com.niftyalgo.app;
+
+          import androidx.biometric.BiometricManager;
+          import androidx.biometric.BiometricPrompt;
+          import androidx.core.content.ContextCompat;
+          import androidx.fragment.app.FragmentActivity;
+
+          /** All fingerprint code. Only loaded when the lock is switched on. */
+          final class LockGate {
+              private static final int AUTH = BiometricManager.Authenticators.BIOMETRIC_WEAK
+                      | BiometricManager.Authenticators.DEVICE_CREDENTIAL;
+
+              private final FragmentActivity act;
+              private final BiometricPrompt prompt;
+              private final BiometricPrompt.PromptInfo info;
+
+              LockGate(FragmentActivity a, final GateCallback cb) {
+                  act = a;
+                  prompt = new BiometricPrompt(a, ContextCompat.getMainExecutor(a),
+                          new BiometricPrompt.AuthenticationCallback() {
+                              @Override
+                              public void onAuthenticationSucceeded(BiometricPrompt.AuthenticationResult r) {
+                                  cb.onSuccess();
+                              }
+
+                              @Override
+                              public void onAuthenticationError(int code, CharSequence msg) {
+                                  cb.onError(String.valueOf(msg));
+                              }
+                          });
+                  info = new BiometricPrompt.PromptInfo.Builder()
+                          .setTitle("Unlock Nifty Algo")
+                          .setSubtitle("Use your fingerprint or screen lock")
+                          .setAllowedAuthenticators(AUTH)
+                          .build();
+              }
+
+              boolean available() {
+                  return BiometricManager.from(act).canAuthenticate(AUTH) == BiometricManager.BIOMETRIC_SUCCESS;
+              }
+
+              void authenticate() {
+                  prompt.authenticate(info);
+              }
+          }
+          J5END
+          cat > app/src/main/AndroidManifest.xml <<'J6END'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+              <uses-permission android:name="android.permission.INTERNET" />
+              <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+              <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+
+              <application
+                  android:name=".CrashApp"
+                  android:allowBackup="false"
+                  android:icon="@mipmap/ic_launcher"
+                  android:label="@string/app_name"
+                  android:theme="@style/Theme.NiftyAlgo"
+                  android:usesCleartextTraffic="true"
+                  android:networkSecurityConfig="@xml/network_security_config">
+
+                  <activity
+                      android:name=".LauncherActivity"
+                      android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="false"
+                      android:configChanges="orientation|screenSize|keyboardHidden|smallestScreenSize|screenLayout"
+                      android:windowSoftInputMode="adjustResize" />
+              </application>
+          </manifest>
+          J6END
+          rm -f app/src/main/java/com/niftyalgo/app/*.orig
+          find app/src -type f | sort
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -256,7 +862,7 @@ jobs:
         with:
           gradle-version: '8.7'
 
-      - name: Build 5 test APKs
+      - name: Build 3 APKs (1 base / 2 menu / 3 full)
         run: |
           set -e
           F=app/src/main/java/com/niftyalgo/app/MainActivity.java
@@ -266,22 +872,19 @@ jobs:
           mkdir -p out
 
           variant() {
-            # $1 = file label, $2 = handler, $3 = menu, $4 = lock
+            # $1 = file label, $2 = menu on/off, $3 = lock on/off
             cp /tmp/Main.new "$F"
-            [ "$2" = "off" ] && sed -i 's/ENABLE_HANDLER = true/ENABLE_HANDLER = false/' "$F"
-            [ "$3" = "off" ] && sed -i 's/ENABLE_MENU = true/ENABLE_MENU = false/' "$F"
-            [ "$4" = "off" ] && sed -i 's/ENABLE_LOCK = true/ENABLE_LOCK = false/' "$F"
+            [ "$2" = "off" ] && sed -i 's/ENABLE_MENU = true/ENABLE_MENU = false/' "$F"
+            [ "$3" = "off" ] && sed -i 's/ENABLE_LOCK = true/ENABLE_LOCK = false/' "$F"
             cp /tmp/strings.orig "$S"
             sed -i "s#>Nifty Algo</string>#>Nifty Algo $1</string>#" "$S"
             gradle --no-daemon assembleDebug
             cp app/build/outputs/apk/debug/app-debug.apk "out/NiftyAlgo-$1.apk"
           }
 
-          variant 1-plain      off off off
-          variant 2-errorscreen on off off
-          variant 3-menu       off on  off
-          variant 4-menu-lock  off on  on
-          variant 5-full       on  on  on
+          variant 1-base off off
+          variant 2-menu on  off
+          variant 3-full on  on
           ls -la out
 
       - uses: actions/upload-artifact@v4
