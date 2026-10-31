@@ -79,6 +79,174 @@ jobs:
           EOF2
           echo "--- repo tree ---"; find . -path ./.git -prune -o -type f -print | sort
 
+      - name: Robot icon and fingerprint permission
+        run: |
+          mkdir -p app/src/main/res/mipmap-xxhdpi app/src/main/res/mipmap-xxxhdpi
+          base64 -d > app/src/main/res/mipmap-xxxhdpi/ic_launcher.png <<'EOF3'
+          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
+          Jo+4GiA+AAAAAElFTkSuQmCC
+          EOF3
+          cp app/src/main/res/mipmap-xxxhdpi/ic_launcher.png app/src/main/res/mipmap-xxhdpi/ic_launcher.png
+          grep -q USE_BIOMETRIC app/src/main/AndroidManifest.xml || sed -i 's#<uses-permission android:name="android.permission.INTERNET" />#&\n    <uses-permission android:name="android.permission.USE_BIOMETRIC" />#' app/src/main/AndroidManifest.xml
+          grep -n "uses-permission" app/src/main/AndroidManifest.xml
+          file app/src/main/res/mipmap-xxhdpi/ic_launcher.png
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -88,10 +256,164 @@ jobs:
         with:
           gradle-version: '8.7'
 
-      - name: Build APK
-        run: gradle --no-daemon assembleDebug
+      - name: Build 4 test APKs (A original / B original+lib / C basic / D full)
+        run: |
+          set -e
+          F=app/src/main/java/com/niftyalgo/app/MainActivity.java
+          S=app/src/main/res/values/strings.xml
+          G=app/build.gradle
+          cp "$F" /tmp/Main.new
+          cp "$S" /tmp/strings.orig
+          cp "$G" /tmp/gradle.full
+          mkdir -p out
+          cat > /tmp/Main.orig <<'JAVAEND'
+          package com.niftyalgo.app;
+
+          import android.annotation.SuppressLint;
+          import android.graphics.Bitmap;
+          import android.net.http.SslError;
+          import android.os.Bundle;
+          import android.view.ViewGroup;
+          import android.webkit.CookieManager;
+          import android.webkit.SslErrorHandler;
+          import android.webkit.WebChromeClient;
+          import android.webkit.WebResourceError;
+          import android.webkit.WebResourceRequest;
+          import android.webkit.WebSettings;
+          import android.webkit.WebView;
+          import android.webkit.WebViewClient;
+
+          import androidx.activity.OnBackPressedCallback;
+          import androidx.appcompat.app.AppCompatActivity;
+          import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
+
+          /** Thin shell: shows the Nifty Algo portal (appUrl) full screen, keeping cookies/login. */
+          public class MainActivity extends AppCompatActivity {
+
+              private WebView web;
+              private SwipeRefreshLayout refresh;
+              private boolean failed = false;
+              private String appUrl;
+
+              @SuppressLint("SetJavaScriptEnabled")
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+                  appUrl = getString(R.string.app_url);
+
+                  web = new WebView(this);
+                  refresh = new SwipeRefreshLayout(this);
+                  refresh.addView(web, new ViewGroup.LayoutParams(
+                          ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+                  setContentView(refresh);
+                  refresh.setOnRefreshListener(() -> web.reload());
+                  // only allow pull-to-refresh when the page is scrolled to the very top
+                  refresh.setOnChildScrollUpCallback((parent, child) -> web.getScrollY() > 0);
+
+                  WebSettings s = web.getSettings();
+                  s.setJavaScriptEnabled(true);
+                  s.setDomStorageEnabled(true);
+                  s.setDatabaseEnabled(true);
+                  s.setLoadWithOverviewMode(true);
+                  s.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+                  s.setCacheMode(WebSettings.LOAD_DEFAULT);
+
+                  // keep the portal sign-in cookie (and the Shoonya redirect cookie) in this WebView
+                  CookieManager cm = CookieManager.getInstance();
+                  cm.setAcceptCookie(true);
+                  cm.setAcceptThirdPartyCookies(web, true);
+
+                  web.setWebChromeClient(new WebChromeClient());
+                  web.setWebViewClient(new WebViewClient() {
+                      @Override
+                      public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest r) {
+                          // Stay inside the app for every http(s) page, so the Shoonya login and
+                          // its redirect back to /shoonya/callback share the same cookies.
+                          String scheme = r.getUrl().getScheme();
+                          return !("http".equals(scheme) || "https".equals(scheme));
+                      }
+
+                      @Override
+                      public void onPageStarted(WebView v, String url, Bitmap icon) {
+                          failed = false;
+                      }
+
+                      @Override
+                      public void onPageFinished(WebView v, String url) {
+                          refresh.setRefreshing(false);
+                          CookieManager.getInstance().flush();
+                      }
+
+                      @Override
+                      public void onReceivedError(WebView v, WebResourceRequest r, WebResourceError e) {
+                          if (r.isForMainFrame()) {
+                              failed = true;
+                              refresh.setRefreshing(false);
+                              v.loadDataWithBaseURL(null, errorHtml(e.getDescription().toString()),
+                                      "text/html", "utf-8", null);
+                          }
+                      }
+
+                      @Override
+                      public void onReceivedSslError(WebView v, SslErrorHandler h, SslError e) {
+                          h.cancel(); // never bypass certificate problems
+                      }
+                  });
+
+                  getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+                      @Override
+                      public void handleOnBackPressed() {
+                          if (web.canGoBack() && !failed) web.goBack();
+                          else finish();
+                      }
+                  });
+
+                  if (savedInstanceState != null) web.restoreState(savedInstanceState);
+                  else web.loadUrl(appUrl);
+              }
+
+              private String errorHtml(String why) {
+                  return "<html><head><meta name='viewport' content='width=device-width,initial-scale=1'></head>"
+                          + "<body style='background:#0b1220;color:#e6edf7;font-family:sans-serif;text-align:center;padding:40px 20px'>"
+                          + "<h2>Can't reach Nifty Algo</h2><p style='color:#8fa0bf'>" + why + "</p>"
+                          + "<p style='color:#8fa0bf;font-size:13px'>" + appUrl + "</p>"
+                          + "<button onclick=\"location.href='" + appUrl + "'\" "
+                          + "style='background:#2de6a8;border:0;border-radius:10px;padding:12px 28px;font-size:16px;font-weight:700'>Retry</button>"
+                          + "</body></html>";
+              }
+
+              @Override
+              protected void onSaveInstanceState(Bundle out) {
+                  super.onSaveInstanceState(out);
+                  web.saveState(out);
+              }
+
+              @Override protected void onPause()  { super.onPause();  CookieManager.getInstance().flush(); web.onPause(); }
+              @Override protected void onResume() { super.onResume(); web.onResume(); }
+          }
+          JAVAEND
+          label() { cp /tmp/strings.orig "$S"; sed -i "s#>Nifty Algo</string>#>Nifty Algo $1</string>#" "$S"; }
+          build() { gradle --no-daemon assembleDebug; cp app/build/outputs/apk/debug/app-debug.apk "out/$1"; }
+
+          # A: your first working code, no fingerprint library
+          cp /tmp/Main.orig "$F"; sed -i '/androidx.biometric/d' "$G"
+          label A-original; build NiftyAlgo-A-original.apk
+
+          # B: same code, but with the fingerprint library added
+          cp /tmp/gradle.full "$G"
+          label B-original-plus-lib; build NiftyAlgo-B-original-plus-lib.apk
+
+          # C: new code, menu and lock switched off
+          cp /tmp/Main.new "$F"
+          sed -i 's/ENABLE_MENU = true/ENABLE_MENU = false/; s/ENABLE_LOCK = true/ENABLE_LOCK = false/' "$F"
+          label C-new-basic; build NiftyAlgo-C-new-basic.apk
+
+          # D: new code, everything on
+          cp /tmp/Main.new "$F"
+          label D-full; build NiftyAlgo-D-full.apk
+          ls -la out
 
       - uses: actions/upload-artifact@v4
         with:
           name: NiftyAlgo-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: out/*.apk
