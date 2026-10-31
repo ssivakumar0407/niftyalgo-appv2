@@ -261,6 +261,7 @@ jobs:
           import android.net.http.SslError;
           import android.os.Bundle;
           import android.os.SystemClock;
+          import android.util.Base64;
           import android.view.Gravity;
           import android.view.MotionEvent;
           import android.view.View;
@@ -362,6 +363,7 @@ jobs:
                       public void onPageFinished(WebView v, String url) {
                           refresh.setRefreshing(false);
                           CookieManager.getInstance().flush();
+                          updateUser();
                       }
 
                       @Override
@@ -404,18 +406,24 @@ jobs:
                   menuBtn = new TextView(this);
                   menuBtn.setText("\u2630");
                   menuBtn.setTextColor(Color.parseColor("#2DE6A8"));
-                  menuBtn.setTextSize(18);
+                  menuBtn.setTextSize(13);
+                  menuBtn.setSingleLine(true);
+                  menuBtn.setMaxWidth(dp(190));
+                  menuBtn.setEllipsize(android.text.TextUtils.TruncateAt.END);
                   menuBtn.setGravity(Gravity.CENTER);
+                  menuBtn.setPadding(dp(14), 0, dp(14), 0);
                   GradientDrawable bg = new GradientDrawable();
-                  bg.setShape(GradientDrawable.OVAL);
+                  bg.setShape(GradientDrawable.RECTANGLE);
+                  bg.setCornerRadius(dp(18));
                   bg.setColor(Color.parseColor("#E6101B30"));
                   bg.setStroke(dp(1), Color.parseColor("#802DE6A8"));
                   menuBtn.setBackground(bg);
-                  menuBtn.setAlpha(0.85f);
-                  FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(dp(44), dp(44),
-                          Gravity.BOTTOM | Gravity.END);
-                  lp.setMargins(0, 0, dp(14), dp(90));
+                  menuBtn.setAlpha(0.9f);
+                  FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
+                          FrameLayout.LayoutParams.WRAP_CONTENT, dp(36), Gravity.BOTTOM | Gravity.END);
+                  lp.setMargins(0, 0, dp(12), dp(90));
                   addContentView(menuBtn, lp);
+                  updateUser();
                   final int slop = ViewConfiguration.get(this).getScaledTouchSlop();
                   menuBtn.setOnTouchListener(new View.OnTouchListener() {
                       float downX, downY, startTx, startTy;
@@ -449,6 +457,8 @@ jobs:
 
               private void showMenu() {
                   PopupMenu m = new PopupMenu(this, menuBtn);
+                  String who = currentUser();
+                  m.getMenu().add(0, 0, 0, who == null ? "Not signed in" : "Signed in as: " + who).setEnabled(false);
                   m.getMenu().add(0, 1, 0, "Switch user");
                   m.getMenu().add(0, 2, 1, "Log off (close app)");
                   if (ENABLE_LOCK) {
@@ -472,6 +482,31 @@ jobs:
                   m.show();
               }
 
+
+              /** The portal keeps the signed-in name inside its login cookie (nap_session = base64(name|expiry).signature). */
+              private String currentUser() {
+                  try {
+                      String c = CookieManager.getInstance().getCookie(appUrl);
+                      if (c == null) return null;
+                      for (String part : c.split(";")) {
+                          part = part.trim();
+                          if (part.startsWith("nap_session=")) {
+                              String body = part.substring("nap_session=".length()).split("\\.")[0];
+                              String text = new String(Base64.decode(body, Base64.URL_SAFE), "UTF-8");
+                              String name = text.split("\\|")[0];
+                              return name.isEmpty() ? null : name;
+                          }
+                      }
+                  } catch (Throwable ignored) { }
+                  return null;
+              }
+
+              private void updateUser() {
+                  if (menuBtn == null) return;
+                  String who = currentUser();
+                  menuBtn.setText(who == null ? "\u2630" : "\u2630  " + who);
+              }
+
               /** Clears this phone's portal session. closeApp=false -> sign-in page again (switch user). */
               private void signOut(boolean closeApp) {
                   String base = appUrl.replaceAll("/+$", "");
@@ -481,6 +516,7 @@ jobs:
                   WebStorage.getInstance().deleteAllData();
                   web.clearCache(true);
                   web.clearHistory();
+                  updateUser();
                   if (closeApp) finishAndRemoveTask();
                   else web.loadUrl(base + "/gateway/logout");   // server clears its cookie and shows the sign-in page
               }
@@ -621,6 +657,7 @@ jobs:
               protected void onResume() {
                   super.onResume();
                   web.onResume();
+                  updateUser();
                   if (!lockEnabled || lockView == null) {
                       locked = false;
                       if (lockView != null) lockView.setVisibility(View.GONE);
@@ -850,7 +887,6 @@ jobs:
               </application>
           </manifest>
           J6END
-          rm -f app/src/main/java/com/niftyalgo/app/*.orig
           find app/src -type f | sort
 
       - uses: actions/setup-java@v4
@@ -862,32 +898,17 @@ jobs:
         with:
           gradle-version: '8.7'
 
-      - name: Build 3 APKs (1 base / 2 menu / 3 full)
+      - name: Build APK
         run: |
           set -e
-          F=app/src/main/java/com/niftyalgo/app/MainActivity.java
-          S=app/src/main/res/values/strings.xml
-          cp "$F" /tmp/Main.new
-          cp "$S" /tmp/strings.orig
+          sed -i "s/versionCode 1/versionCode ${{ github.run_number }}/" app/build.gradle
+          grep -n versionCode app/build.gradle
+          gradle --no-daemon assembleDebug
           mkdir -p out
-
-          variant() {
-            # $1 = file label, $2 = menu on/off, $3 = lock on/off
-            cp /tmp/Main.new "$F"
-            [ "$2" = "off" ] && sed -i 's/ENABLE_MENU = true/ENABLE_MENU = false/' "$F"
-            [ "$3" = "off" ] && sed -i 's/ENABLE_LOCK = true/ENABLE_LOCK = false/' "$F"
-            cp /tmp/strings.orig "$S"
-            sed -i "s#>Nifty Algo</string>#>Nifty Algo $1</string>#" "$S"
-            gradle --no-daemon assembleDebug
-            cp app/build/outputs/apk/debug/app-debug.apk "out/NiftyAlgo-$1.apk"
-          }
-
-          variant 1-base off off
-          variant 2-menu on  off
-          variant 3-full on  on
+          cp app/build/outputs/apk/debug/app-debug.apk out/NiftyAlgo.apk
           ls -la out
 
       - uses: actions/upload-artifact@v4
         with:
           name: NiftyAlgo-apk
-          path: out/*.apk
+          path: out/NiftyAlgo.apk
