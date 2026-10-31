@@ -334,6 +334,7 @@ jobs:
                   WebSettings s = web.getSettings();
                   s.setJavaScriptEnabled(true);
                   s.setDomStorageEnabled(true);
+                  s.setMediaPlaybackRequiresUserGesture(false);   // lets the alert sounds play
                   s.setDatabaseEnabled(true);
                   s.setLoadWithOverviewMode(true);
                   s.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
@@ -385,6 +386,8 @@ jobs:
                   prefs = getSharedPreferences("niftyalgo", MODE_PRIVATE);
                   lockEnabled = ENABLE_LOCK && prefs.getBoolean("lock", true);
                   locked = lockEnabled;
+                  applyAwake(prefs.getBoolean("awake", true));
+                  setVolumeControlStream(android.media.AudioManager.STREAM_MUSIC);
                   if (ENABLE_MENU) buildMenuButton();
                   if (ENABLE_LOCK) buildLockScreen();
 
@@ -455,6 +458,11 @@ jobs:
                   });
               }
 
+              private void applyAwake(boolean on) {
+                  if (on) getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                  else getWindow().clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+              }
+
               private void showMenu() {
                   PopupMenu m = new PopupMenu(this, menuBtn);
                   String who = currentUser();
@@ -466,7 +474,8 @@ jobs:
                       m.getMenu().add(0, 3, 2, "Lock now");
                       m.getMenu().add(0, 4, 3, lockEnabled ? "Fingerprint lock: ON (turn off)" : "Fingerprint lock: OFF (turn on)");
                   }
-                  m.getMenu().add(0, 5, 4, "Reload page");
+                  m.getMenu().add(0, 7, 4, prefs.getBoolean("awake", true) ? "Keep screen on: ON (turn off)" : "Keep screen on: OFF (turn on)");
+                  m.getMenu().add(0, 5, 5, "Reload page");
                   m.setOnMenuItemClickListener(item -> {
                       switch (item.getItemId()) {
                           case 1: signOut(false); break;
@@ -477,6 +486,7 @@ jobs:
                               break;
                           case 4: toggleLock(); break;
                           case 5: web.reload(); break;
+                          case 7: { boolean nv = !prefs.getBoolean("awake", true); prefs.edit().putBoolean("awake", nv).apply(); applyAwake(nv); } break;
                           case 6: web.loadUrl(appUrl.replaceAll("/+$", "") + "/gateway/account"); break;
                       }
                       return true;
